@@ -1,0 +1,49 @@
+/*
+DTMF Dialer for PicoCalc PicoMite BASIC
+by Christopher Fox
+*/
+
+' Create the DTMF tones array.
+Dim tones(16,2)
+For i = 0 To 3
+tones(i,0)=697
+tones(i+4,0)=770
+tones(i+8,0)=852
+tones(i+12,0)=941
+Next i
+For i = 0 To 15 Step 4
+tones(i,1)=1209
+tones(i+1,1)=1336
+tones(i+2,1)=1477
+tones(i+3,1)=1633
+Next i
+
+' Draw the screen.
+' Reserve memory for GUI controls.
+' "Invalid in a program" to declare Option GUI?
+' Option GUI controls 17
+CONST Caption = 1
+CONST Num_1 = 2
+CONST Num_2 = 3
+CONST Num_3 = 4
+Const Let_A = 5
+Const Num_4 = 6
+Const Num_5 = 7
+Const Num_6 = 8
+Const Let_B = 9
+Const Num_7 = 10
+Const Num_8 = 11
+Const Num_9 = 12
+Const Let_C = 13
+Const Star = 14
+Const Num_0 = 15
+Const Hash = 16
+Const Let_D = 17
+
+
+GUI CAPTION Caption,"Dialpad",mm.hres/2,10,"CMN",RGB(green),RGB(black)
+
+' Main Loop Wait until keypress then end.
+DO
+IF inkey$<>"" then cls:end
+Loop
