@@ -19,6 +19,10 @@ tones(i+3,1)=1633
 Next i
 
 ' Draw the screen.
+CONST FG_Color = RGB(green)
+CONST BG_Color = RGB(Black)
+CONST T_BG_Color = RGB(64,64,64)
+
 ' Reserve memory for GUI controls.
 ' "Invalid in a program" to declare Option GUI?
 ' Option GUI controls 17
@@ -41,9 +45,26 @@ Const Hash = 16
 Const Let_D = 17
 
 
-GUI CAPTION Caption,"Dialpad",mm.hres/2,10,"CMN",RGB(green),RGB(black)
+GUI CAPTION Caption,"Dialpad",mm.hres/2,10,"CMN",FG_Color,BG_Color
+GUI DISPLAYBOX Num_1,10,10,75,75,FG_Color,BG_Color
+CtrlVal(Num_1) = "1"
+GUI DISPLAYBOX Num_2,85,10,75,75,FG_Color,BG_Color
+CtrlVal(Num_2) = "2"
+GUI DISPLAYBOX Num_3,160,10,75,75,FG_Color,BG_Color
+CtrlVal(Num_3) = "3"
+GUI DISPLAYBOX Let_A,235,10,75,75,FG_Color,BG_Color
+CtrlVal(Let_A) = "A"
+GUI DISPLAYBOX Num_4,10,85,75,75,FG_Color,BG_Color
+CtrlVal(Num_4) = "4"
+
 
 ' Main Loop Wait until keypress then end.
 DO
-IF inkey$<>"" then cls:end
+Pressed_key$ = inkey$
+IF Pressed_key$="q" then cls:gui delete all:end
+IF Pressed_key$="1" then GUI BCOLOUR T_BG_Color,Num_1:play tone tones(0,0),tones(0,1),100:pause 100:GUI BCOLOUR BG_Color,Num_1
+IF Pressed_key$="2" then GUI BCOLOUR T_BG_Color,Num_2:play tone tones(1,0),tones(1,1),100:pause 100:GUI BCOLOUR BG_Color,Num_2
+IF Pressed_key$="3" then GUI BCOLOUR T_BG_Color,Num_3:play tone tones(2,0),tones(2,1),100:pause 100:GUI BCOLOUR BG_Color,Num_3
+IF Pressed_key$="a" then GUI BCOLOUR T_BG_Color,Let_A:play tone tones(3,0),tones(3,1),100:pause 100:GUI BCOLOUR BG_Color,Let_A
+IF Pressed_key$="4" then GUI BCOLOUR T_BG_Color,Num_4:play tone tones(4,0),tones(4,1),100:pause 100:GUI BCOLOUR BG_Color,Num_4
 Loop
