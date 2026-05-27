@@ -327,19 +327,27 @@ End Sub
 
 ' Strip at the top showing the current sequence + cursor
 Sub DrawSeqStrip seq$, cur
-  Local stripY, stripH, i, ch$, x, charW, display$
+  Local stripY, stripH, charW, charH, textY, x
   stripY = 22
-  stripH = 12
-  Box 0, stripY, mm.hres, stripH, 1, BG_Color, BG_Color   ' clear
-  charW = 8
+  stripH = 14
+  ' Clear the strip area
+  Box 0, stripY, mm.hres, stripH, 0, BG_Color, BG_Color
+
+  ' Use font 1 at scale 2 — its character cell is exactly 8x12 pixels
+  ' (PicoMite font 1 is 8 wide x 12 tall before scaling; we use scale 1 here for fit)
+  Font 1, 1
+  charW = MM.INFO(FONTWIDTH)
+  charH = MM.INFO(FONTHEIGHT)
+  textY = stripY + (stripH - charH) / 2
 
   If Len(seq$) = 0 Then
-    Text mm.hres/2, stripY + stripH/2, "(empty)  Enter=play  S=save  C=clear", "CM", 7, 1, DIM_Color, BG_Color
+    Text mm.hres/2, stripY + stripH/2, "(empty) Enter=play S=save C=clear", "CM", 1, 1, DIM_Color, BG_Color
   Else
-    ' Show sequence; mark cursor position with a caret line
-    Text 10, stripY + stripH/2, seq$, "LM", 7, 1, FG_Color, BG_Color
+    ' Draw the sequence left-aligned starting at x=10, with cursor inserted
+    Text 10, textY, seq$, "LT", 1, 1, FG_Color, BG_Color
+    ' Cursor sits between characters at index `cur`
     x = 10 + cur * charW
-    Line x, stripY + 1, x, stripY + stripH - 1, 1, RGB(white)
+    Line x, stripY + 1, x, stripY + stripH - 2,, RGB(white)
   End If
 End Sub
 
