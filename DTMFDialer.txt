@@ -1,107 +1,695 @@
 /*
-DTMF Dialer for PicoCalc PicoMite BASIC
+DTMF Tool for PicoCalc PicoMite BASIC
 by Christopher Fox
+
+Features:
+  - Main menu navigation
+  - Live Dialpad (16-key DTMF, including A/B/C/D)
+  - Saved Sequences: create, load, play, edit, delete
+  - Settings (stub for future expansion)
+
+Sequence file format (stored as B:\DTMF\<NAME>.SEQ):
+  NAME:<display name>
+  SEQ:<token string>
+Where each token is one character: 0-9, *, #, A-D, or P (pause).
 */
 
-' Create the DTMF tones array.
-Dim tones(16,2)
-For i = 0 To 3
-tones(i,0)=697
-tones(i+4,0)=770
-tones(i+8,0)=852
-tones(i+12,0)=941
-Next i
-For i = 0 To 15 Step 4
-tones(i,1)=1209
-tones(i+1,1)=1336
-tones(i+2,1)=1477
-tones(i+3,1)=1633
-Next i
+' ====================================================================
+' Global constants & state
+' ====================================================================
 
-' Draw the screen.
-CONST FG_Color = RGB(green)
-CONST BG_Color = RGB(Black)
+CONST FG_Color   = RGB(green)
+CONST BG_Color   = RGB(black)
 CONST T_BG_Color = RGB(64,64,64)
+CONST HL_Color   = RGB(0,128,0)     ' highlight bar for menus
+CONST DIM_Color  = RGB(80,80,80)
 
-' Reserve memory for GUI controls.
-CONST Caption = 1
-CONST Num_1 = 2
-CONST Num_2 = 3
-CONST Num_3 = 4
-Const Let_A = 5
-Const Num_4 = 6
-Const Num_5 = 7
-Const Num_6 = 8
-Const Let_B = 9
-Const Num_7 = 10
-Const Num_8 = 11
-Const Num_9 = 12
-Const Let_C = 13
-Const Star = 14
-Const Num_0 = 15
-Const Hash = 16
-Const Let_D = 17
+' Q.23 minimum timings (ms)
+CONST TONE_MS  = 40
+CONST GAP_MS   = 40
+CONST PAUSE_MS = 1000
 
-GUI CAPTION Caption,"Dialpad",mm.hres/2,10,"CMN",FG_Color,BG_Color
+' Live dialpad uses longer tones for human comfort
+CONST LIVE_TONE_MS = 100
+CONST LIVE_GAP_MS  = 100
 
-' Row 1: 1 2 3 A
-GUI DISPLAYBOX Num_1,10,10,75,75,FG_Color,BG_Color
-CtrlVal(Num_1) = "1"
-GUI DISPLAYBOX Num_2,85,10,75,75,FG_Color,BG_Color
-CtrlVal(Num_2) = "2"
-GUI DISPLAYBOX Num_3,160,10,75,75,FG_Color,BG_Color
-CtrlVal(Num_3) = "3"
-GUI DISPLAYBOX Let_A,235,10,75,75,FG_Color,BG_Color
-CtrlVal(Let_A) = "A"
+' File storage
+CONST SEQ_DIR = "B:\DTMF"
+CONST SEQ_EXT = ".SEQ"
 
-' Row 2: 4 5 6 B
-GUI DISPLAYBOX Num_4,10,85,75,75,FG_Color,BG_Color
-CtrlVal(Num_4) = "4"
-GUI DISPLAYBOX Num_5,85,85,75,75,FG_Color,BG_Color
-CtrlVal(Num_5) = "5"
-GUI DISPLAYBOX Num_6,160,85,75,75,FG_Color,BG_Color
-CtrlVal(Num_6) = "6"
-GUI DISPLAYBOX Let_B,235,85,75,75,FG_Color,BG_Color
-CtrlVal(Let_B) = "B"
+' GUI control IDs (reserved range 1..32; we GUI DELETE ALL between screens)
+CONST C_CAPTION = 1
 
-' Row 3: 7 8 9 C
-GUI DISPLAYBOX Num_7,10,160,75,75,FG_Color,BG_Color
-CtrlVal(Num_7) = "7"
-GUI DISPLAYBOX Num_8,85,160,75,75,FG_Color,BG_Color
-CtrlVal(Num_8) = "8"
-GUI DISPLAYBOX Num_9,160,160,75,75,FG_Color,BG_Color
-CtrlVal(Num_9) = "9"
-GUI DISPLAYBOX Let_C,235,160,75,75,FG_Color,BG_Color
-CtrlVal(Let_C) = "C"
+' DTMF tones table: tones(i,0)=row freq (low), tones(i,1)=col freq (high)
+' Indices 0..15 map to: 1,2,3,A, 4,5,6,B, 7,8,9,C, *,0,#,D
+Dim tones(15,1)
 
-' Row 4: * 0 # D
-GUI DISPLAYBOX Star,10,235,75,75,FG_Color,BG_Color
-CtrlVal(Star) = "*"
-GUI DISPLAYBOX Num_0,85,235,75,75,FG_Color,BG_Color
-CtrlVal(Num_0) = "0"
-GUI DISPLAYBOX Hash,160,235,75,75,FG_Color,BG_Color
-CtrlVal(Hash) = "#"
-GUI DISPLAYBOX Let_D,235,235,75,75,FG_Color,BG_Color
-CtrlVal(Let_D) = "D"
+' Build tones table once at startup
+Sub InitTones
+  Local i
+  For i = 0 To 3
+    tones(i,0)    = 697
+    tones(i+4,0)  = 770
+    tones(i+8,0)  = 852
+    tones(i+12,0) = 941
+  Next i
+  For i = 0 To 15 Step 4
+    tones(i,1)   = 1209
+    tones(i+1,1) = 1336
+    tones(i+2,1) = 1477
+    tones(i+3,1) = 1633
+  Next i
+End Sub
 
-' Main Loop Wait until keypress then end.
-DO
-Pressed_key$ = inkey$
-IF Pressed_key$="q" then cls:gui delete all:end
-IF Pressed_key$="1" then GUI BCOLOUR T_BG_Color,Num_1:play tone tones(0,0),tones(0,1),100:pause 100:GUI BCOLOUR BG_Color,Num_1
-IF Pressed_key$="2" then GUI BCOLOUR T_BG_Color,Num_2:play tone tones(1,0),tones(1,1),100:pause 100:GUI BCOLOUR BG_Color,Num_2
-IF Pressed_key$="3" then GUI BCOLOUR T_BG_Color,Num_3:play tone tones(2,0),tones(2,1),100:pause 100:GUI BCOLOUR BG_Color,Num_3
-IF Pressed_key$="a" then GUI BCOLOUR T_BG_Color,Let_A:play tone tones(3,0),tones(3,1),100:pause 100:GUI BCOLOUR BG_Color,Let_A
-IF Pressed_key$="4" then GUI BCOLOUR T_BG_Color,Num_4:play tone tones(4,0),tones(4,1),100:pause 100:GUI BCOLOUR BG_Color,Num_4
-IF Pressed_key$="5" then GUI BCOLOUR T_BG_Color,Num_5:play tone tones(5,0),tones(5,1),100:pause 100:GUI BCOLOUR BG_Color,Num_5
-IF Pressed_key$="6" then GUI BCOLOUR T_BG_Color,Num_6:play tone tones(6,0),tones(6,1),100:pause 100:GUI BCOLOUR BG_Color,Num_6
-IF Pressed_key$="b" then GUI BCOLOUR T_BG_Color,Let_B:play tone tones(7,0),tones(7,1),100:pause 100:GUI BCOLOUR BG_Color,Let_B
-IF Pressed_key$="7" then GUI BCOLOUR T_BG_Color,Num_7:play tone tones(8,0),tones(8,1),100:pause 100:GUI BCOLOUR BG_Color,Num_7
-IF Pressed_key$="8" then GUI BCOLOUR T_BG_Color,Num_8:play tone tones(9,0),tones(9,1),100:pause 100:GUI BCOLOUR BG_Color,Num_8
-IF Pressed_key$="9" then GUI BCOLOUR T_BG_Color,Num_9:play tone tones(10,0),tones(10,1),100:pause 100:GUI BCOLOUR BG_Color,Num_9
-IF Pressed_key$="c" then GUI BCOLOUR T_BG_Color,Let_C:play tone tones(11,0),tones(11,1),100:pause 100:GUI BCOLOUR BG_Color,Let_C
-IF Pressed_key$="*" then GUI BCOLOUR T_BG_Color,Star:play tone tones(12,0),tones(12,1),100:pause 100:GUI BCOLOUR BG_Color,Star
-IF Pressed_key$="0" then GUI BCOLOUR T_BG_Color,Num_0:play tone tones(13,0),tones(13,1),100:pause 100:GUI BCOLOUR BG_Color,Num_0
-IF Pressed_key$="#" then GUI BCOLOUR T_BG_Color,Hash:play tone tones(14,0),tones(14,1),100:pause 100:GUI BCOLOUR BG_Color,Hash
-IF Pressed_key$="d" then GUI BCOLOUR T_BG_Color,Let_D:play tone tones(15,0),tones(15,1),100:pause 100:GUI BCOLOUR BG_Color,Let_D
-Loop
+' Convert a token character to its tones() index, or -1 if not a tone
+Function TokenIndex(c$) As Integer
+  Local u$
+  u$ = UCase$(c$)
+  Select Case u$
+    Case "1" : TokenIndex = 0
+    Case "2" : TokenIndex = 1
+    Case "3" : TokenIndex = 2
+    Case "A" : TokenIndex = 3
+    Case "4" : TokenIndex = 4
+    Case "5" : TokenIndex = 5
+    Case "6" : TokenIndex = 6
+    Case "B" : TokenIndex = 7
+    Case "7" : TokenIndex = 8
+    Case "8" : TokenIndex = 9
+    Case "9" : TokenIndex = 10
+    Case "C" : TokenIndex = 11
+    Case "*" : TokenIndex = 12
+    Case "0" : TokenIndex = 13
+    Case "#" : TokenIndex = 14
+    Case "D" : TokenIndex = 15
+    Case Else: TokenIndex = -1
+  End Select
+End Function
+
+' ====================================================================
+' Entry point
+' ====================================================================
+
+InitTones
+EnsureSeqDir
+MainMenu
+CLS
+End
+
+' ====================================================================
+' Main Menu
+' ====================================================================
+
+Sub MainMenu
+  Local items$(4), n, sel, k$
+  items$(0) = "Dialpad"
+  items$(1) = "Saved Sequences"
+  items$(2) = "Settings"
+  items$(3) = "Quit"
+  n = 4
+  sel = 0
+
+  Do
+    DrawMenu "DTMF Tool", items$(), n, sel
+    k$ = WaitKey$()
+    Select Case k$
+      Case Chr$(128) : sel = (sel - 1 + n) Mod n   ' Up
+      Case Chr$(129) : sel = (sel + 1) Mod n       ' Down
+      Case Chr$(13), " "
+        Select Case sel
+          Case 0 : Dialpad
+          Case 1 : SavedSequences
+          Case 2 : Settings
+          Case 3 : Exit Sub
+        End Select
+      Case "q", "Q" : Exit Sub
+    End Select
+  Loop
+End Sub
+
+' Render a vertical menu with title and highlight bar
+Sub DrawMenu title$, items$(), n, sel
+  Local i, y, lineH
+  CLS
+  GUI DELETE ALL
+  GUI CAPTION C_CAPTION, title$, mm.hres/2, 8, "CMN", FG_Color, BG_Color
+
+  lineH = 32
+  For i = 0 To n - 1
+    y = 50 + i * lineH
+    If i = sel Then
+      Box 20, y, mm.hres - 40, lineH - 4, 1, HL_Color, HL_Color
+      Text mm.hres/2, y + (lineH-4)/2, items$(i), "CM", 1, 1, RGB(white), HL_Color
+    Else
+      Text mm.hres/2, y + (lineH-4)/2, items$(i), "CM", 1, 1, FG_Color, BG_Color
+    End If
+  Next i
+
+  Text mm.hres/2, mm.vres - 16, "Up/Down + Enter   Q=back", "CM", 1, 1, DIM_Color, BG_Color
+End Sub
+
+' ====================================================================
+' Dialpad (live)
+' ====================================================================
+
+Sub Dialpad
+  Local k$, idx
+  DrawDialpadFrame "Dialpad"
+  DrawDialpadButtons 0   ' 0 = no Pause button
+  Do
+    k$ = Inkey$
+    If k$ <> "" Then
+      If k$ = "q" Or k$ = "Q" Then Exit Sub
+      idx = TokenIndex(k$)
+      If idx >= 0 Then PressLive idx, k$
+    End If
+  Loop
+End Sub
+
+' Frame: caption + footer
+Sub DrawDialpadFrame title$
+  CLS
+  GUI DELETE ALL
+  GUI CAPTION C_CAPTION, title$, mm.hres/2, 5, "CMN", FG_Color, BG_Color
+End Sub
+
+' Draw the 4x4 dialpad. If show_pause<>0, also draw a 5th row with Pause/Back/Save.
+' Returns nothing; uses Text/Box so we don't need GUI control bookkeeping per screen.
+Sub DrawDialpadButtons show_pause
+  Local labels$(15), i, r, c, x, y, w, h, top
+  labels$(0)="1": labels$(1)="2": labels$(2)="3":  labels$(3)="A"
+  labels$(4)="4": labels$(5)="5": labels$(6)="6":  labels$(7)="B"
+  labels$(8)="7": labels$(9)="8": labels$(10)="9": labels$(11)="C"
+  labels$(12)="*":labels$(13)="0":labels$(14)="#": labels$(15)="D"
+
+  w = 75 : h = 55 : top = 35
+  For i = 0 To 15
+    r = i \ 4
+    c = i Mod 4
+    x = 10 + c * w
+    y = top + r * (h + 5)
+    DrawButton x, y, w, h, labels$(i), BG_Color
+  Next i
+
+  If show_pause <> 0 Then
+    ' Bottom row of action buttons: Pause, <-, ->, BkSp, Clr, Save
+    Local by, bh, bw
+    by = top + 4 * (h + 5) + 4
+    bh = 30
+    bw = 50
+    DrawButton  10, by, bw, bh, "Pse", BG_Color
+    DrawButton  65, by, bw, bh, "<-",  BG_Color
+    DrawButton 120, by, bw, bh, "->",  BG_Color
+    DrawButton 175, by, bw, bh, "Bks", BG_Color
+    DrawButton 230, by, bw, bh, "Clr", BG_Color
+    DrawButton 285, by, 25, bh, "S",   BG_Color   ' Save (narrow)
+  End If
+End Sub
+
+' Draw one labeled box-button
+Sub DrawButton x, y, w, h, label$, bg
+  Box x, y, w, h, 1, FG_Color, bg
+  Text x + w/2, y + h/2, label$, "CM", 1, 1, FG_Color, bg
+End Sub
+
+' Visually press a button and play its tone (live dialpad)
+Sub PressLive idx, ch$
+  Local r, c, x, y, w, h, top, label$
+  w = 75 : h = 55 : top = 35
+  r = idx \ 4
+  c = idx Mod 4
+  x = 10 + c * w
+  y = top + r * (h + 5)
+  label$ = UCase$(ch$)
+  DrawButton x, y, w, h, label$, T_BG_Color
+  Play Tone tones(idx,0), tones(idx,1), LIVE_TONE_MS
+  Pause LIVE_TONE_MS
+  DrawButton x, y, w, h, label$, BG_Color
+  Pause LIVE_GAP_MS
+End Sub
+
+' ====================================================================
+' Saved Sequences sub-menu
+' ====================================================================
+
+Sub SavedSequences
+  Local items$(4), n, sel, k$
+  items$(0) = "New Sequence"
+  items$(1) = "Load / Play / Edit"
+  items$(2) = "Delete Sequence"
+  items$(3) = "Back"
+  n = 4
+  sel = 0
+
+  Do
+    DrawMenu "Saved Sequences", items$(), n, sel
+    k$ = WaitKey$()
+    Select Case k$
+      Case Chr$(128) : sel = (sel - 1 + n) Mod n
+      Case Chr$(129) : sel = (sel + 1) Mod n
+      Case Chr$(13), " "
+        Select Case sel
+          Case 0 : NewSequence
+          Case 1 : PickSequence("Load")
+          Case 2 : PickSequence("Delete")
+          Case 3 : Exit Sub
+        End Select
+      Case "q", "Q" : Exit Sub
+    End Select
+  Loop
+End Sub
+
+' ====================================================================
+' New Sequence — editor with cursor
+' ====================================================================
+
+Sub NewSequence
+  Local seq$, cur, k$, idx
+  seq$ = ""
+  cur = 0
+
+  DrawDialpadFrame "New Sequence"
+  DrawDialpadButtons 1
+  DrawSeqStrip seq$, cur
+
+  Do
+    k$ = Inkey$
+    If k$ <> "" Then
+      If k$ = "q" Or k$ = "Q" Then Exit Sub
+
+      idx = TokenIndex(k$)
+      If idx >= 0 Then
+        ' Insert tone token at cursor
+        seq$ = Left$(seq$, cur) + UCase$(k$) + Mid$(seq$, cur+1)
+        cur = cur + 1
+        PressLive idx, k$
+        DrawSeqStrip seq$, cur
+
+      ElseIf k$ = "p" Or k$ = "P" Then
+        seq$ = Left$(seq$, cur) + "P" + Mid$(seq$, cur+1)
+        cur = cur + 1
+        FlashPauseBtn
+        DrawSeqStrip seq$, cur
+
+      ElseIf k$ = Chr$(130) Then   ' Left arrow
+        If cur > 0 Then cur = cur - 1
+        DrawSeqStrip seq$, cur
+
+      ElseIf k$ = Chr$(131) Then   ' Right arrow
+        If cur < Len(seq$) Then cur = cur + 1
+        DrawSeqStrip seq$, cur
+
+      ElseIf k$ = Chr$(127) Or k$ = Chr$(8) Then   ' Backspace
+        If cur > 0 Then
+          seq$ = Left$(seq$, cur-1) + Mid$(seq$, cur+1)
+          cur = cur - 1
+          DrawSeqStrip seq$, cur
+        End If
+
+      ElseIf k$ = "c" Or k$ = "C" Then   ' Clear all
+        seq$ = "" : cur = 0
+        DrawSeqStrip seq$, cur
+
+      ElseIf k$ = "s" Or k$ = "S" Then   ' Save
+        If Len(seq$) > 0 Then
+          SaveSequenceDialog seq$
+          DrawDialpadFrame "New Sequence"
+          DrawDialpadButtons 1
+          DrawSeqStrip seq$, cur
+        End If
+
+      ElseIf k$ = Chr$(13) Then   ' Enter = play preview
+        PlaySequence seq$
+      End If
+    End If
+  Loop
+End Sub
+
+' Strip at the top showing the current sequence + cursor
+Sub DrawSeqStrip seq$, cur
+  Local stripY, stripH, i, ch$, x, charW, display$
+  stripY = 22
+  stripH = 12
+  Box 0, stripY, mm.hres, stripH, 1, BG_Color, BG_Color   ' clear
+  charW = 8
+
+  If Len(seq$) = 0 Then
+    Text mm.hres/2, stripY + stripH/2, "(empty)  Enter=play  S=save  C=clear", "CM", 7, 1, DIM_Color, BG_Color
+  Else
+    ' Show sequence; mark cursor position with a caret line
+    Text 10, stripY + stripH/2, seq$, "LM", 7, 1, FG_Color, BG_Color
+    x = 10 + cur * charW
+    Line x, stripY + 1, x, stripY + stripH - 1, 1, RGB(white)
+  End If
+End Sub
+
+Sub FlashPauseBtn
+  Local by
+  by = 35 + 4 * (55 + 5) + 4
+  DrawButton 10, by, 50, 30, "Pse", T_BG_Color
+  Pause 80
+  DrawButton 10, by, 50, 30, "Pse", BG_Color
+End Sub
+
+' ====================================================================
+' Save / Load / Delete
+' ====================================================================
+
+Sub SaveSequenceDialog seq$
+  Local name$, path$
+  name$ = PromptText$("Save as (no extension):", 16)
+  If name$ = "" Then Exit Sub
+
+  ' Sanitize: uppercase, replace spaces with _
+  name$ = SanitizeName$(name$)
+  path$ = SEQ_DIR + "\" + name$ + SEQ_EXT
+
+  EnsureSeqDir
+  WriteSeqFile path$, name$, seq$
+  ShowMessage "Saved as " + name$ + SEQ_EXT, 1200
+End Sub
+
+Sub WriteSeqFile path$, name$, seq$
+  Local f
+  f = 1
+  Open path$ For Output As #f
+  Print #f, "NAME:" + name$
+  Print #f, "SEQ:" + seq$
+  Close #f
+End Sub
+
+Sub ReadSeqFile path$, name$, seq$
+  Local f, line$
+  name$ = "" : seq$ = ""
+  f = 1
+  Open path$ For Input As #f
+  Do While Not Eof(#f)
+    Line Input #f, line$
+    If Left$(line$, 5) = "NAME:" Then name$ = Mid$(line$, 6)
+    If Left$(line$, 4) = "SEQ:"  Then seq$  = Mid$(line$, 5)
+  Loop
+  Close #f
+End Sub
+
+' Build list of saved sequence filenames (without extension)
+Sub ListSequences names$(), count
+  Local f$, i
+  count = 0
+  f$ = Dir$(SEQ_DIR + "\*" + SEQ_EXT, FILE)
+  Do While f$ <> ""
+    If count <= Bound(names$(), 1) Then
+      names$(count) = StripExt$(f$)
+      count = count + 1
+    End If
+    f$ = Dir$()
+  Loop
+End Sub
+
+Function StripExt$(fn$)
+  Local p
+  p = InStr(fn$, ".")
+  If p > 0 Then
+    StripExt$ = Left$(fn$, p-1)
+  Else
+    StripExt$ = fn$
+  End If
+End Function
+
+Function SanitizeName$(s$)
+  Local i, c$, result$
+  For i = 1 To Len(s$)
+    c$ = UCase$(Mid$(s$, i, 1))
+    If (c$ >= "A" And c$ <= "Z") Or (c$ >= "0" And c$ <= "9") Or c$ = "_" Then
+      result$ = result$ + c$
+    ElseIf c$ = " " Then
+      result$ = result$ + "_"
+    End If
+  Next i
+  If result$ = "" Then result$ = "UNNAMED"
+  SanitizeName$ = Left$(result$, 16)
+End Function
+
+Sub EnsureSeqDir
+  ' MkDir will error if exists; we ignore via On Error
+  On Error Skip
+  MkDir SEQ_DIR
+  On Error Abort
+End Sub
+
+' Pick a sequence from saved list; mode$="Load" or "Delete"
+Sub PickSequence mode$
+  Local names$(63), count, sel, k$, title$
+  ListSequences names$(), count
+  If count = 0 Then
+    ShowMessage "No saved sequences.", 1200
+    Exit Sub
+  End If
+
+  sel = 0
+  title$ = mode$ + " Sequence"
+  Do
+    DrawList title$, names$(), count, sel
+    k$ = WaitKey$()
+    Select Case k$
+      Case Chr$(128) : sel = (sel - 1 + count) Mod count
+      Case Chr$(129) : sel = (sel + 1) Mod count
+      Case Chr$(13), " "
+        If mode$ = "Load" Then
+          LoadAndAct names$(sel)
+        Else
+          ConfirmDelete names$(sel)
+        End If
+        ' Re-list (file may have been deleted)
+        ListSequences names$(), count
+        If count = 0 Then Exit Sub
+        If sel >= count Then sel = count - 1
+      Case "q", "Q" : Exit Sub
+    End Select
+  Loop
+End Sub
+
+Sub DrawList title$, items$(), n, sel
+  Local i, y, lineH, viewTop, viewN, first
+  CLS
+  GUI DELETE ALL
+  GUI CAPTION C_CAPTION, title$, mm.hres/2, 8, "CMN", FG_Color, BG_Color
+
+  lineH = 20
+  viewTop = 40
+  viewN = (mm.vres - viewTop - 20) \ lineH
+
+  ' Simple scroll: keep selection in view
+  first = 0
+  If sel >= viewN Then first = sel - viewN + 1
+
+  For i = 0 To IMin(viewN-1, n - first - 1)
+    y = viewTop + i * lineH
+    If (i + first) = sel Then
+      Box 20, y, mm.hres - 40, lineH - 2, 1, HL_Color, HL_Color
+      Text mm.hres/2, y + (lineH-2)/2, items$(i+first), "CM", 1, 1, RGB(white), HL_Color
+    Else
+      Text mm.hres/2, y + (lineH-2)/2, items$(i+first), "CM", 1, 1, FG_Color, BG_Color
+    End If
+  Next i
+
+  Text mm.hres/2, mm.vres - 14, "Enter=select   Q=back", "CM", 1, 1, DIM_Color, BG_Color
+End Sub
+
+Function IMin(a, b)
+  If a < b Then IMin = a Else IMin = b
+End Function
+
+' After loading, present Play / Edit / Back
+Sub LoadAndAct name$
+  Local path$, dispName$, seq$, items$(3), n, sel, k$
+  path$ = SEQ_DIR + "\" + name$ + SEQ_EXT
+  ReadSeqFile path$, dispName$, seq$
+
+  items$(0) = "Play"
+  items$(1) = "Edit"
+  items$(2) = "Back"
+  n = 3
+  sel = 0
+  Do
+    DrawMenu name$ + ": " + seq$, items$(), n, sel
+    k$ = WaitKey$()
+    Select Case k$
+      Case Chr$(128) : sel = (sel - 1 + n) Mod n
+      Case Chr$(129) : sel = (sel + 1) Mod n
+      Case Chr$(13), " "
+        Select Case sel
+          Case 0 : PlaySequence seq$
+          Case 1
+            EditExisting name$, seq$
+            ' refresh in case it changed
+            ReadSeqFile path$, dispName$, seq$
+          Case 2 : Exit Sub
+        End Select
+      Case "q", "Q" : Exit Sub
+    End Select
+  Loop
+End Sub
+
+' Edit an existing sequence (preloaded into seq$)
+Sub EditExisting name$, seq$
+  Local cur, k$, idx, working$
+  working$ = seq$
+  cur = Len(working$)
+
+  DrawDialpadFrame "Edit: " + name$
+  DrawDialpadButtons 1
+  DrawSeqStrip working$, cur
+
+  Do
+    k$ = Inkey$
+    If k$ <> "" Then
+      If k$ = "q" Or k$ = "Q" Then Exit Sub
+      idx = TokenIndex(k$)
+      If idx >= 0 Then
+        working$ = Left$(working$, cur) + UCase$(k$) + Mid$(working$, cur+1)
+        cur = cur + 1
+        PressLive idx, k$
+        DrawSeqStrip working$, cur
+      ElseIf k$ = "p" Or k$ = "P" Then
+        working$ = Left$(working$, cur) + "P" + Mid$(working$, cur+1)
+        cur = cur + 1
+        FlashPauseBtn
+        DrawSeqStrip working$, cur
+      ElseIf k$ = Chr$(130) Then
+        If cur > 0 Then cur = cur - 1
+        DrawSeqStrip working$, cur
+      ElseIf k$ = Chr$(131) Then
+        If cur < Len(working$) Then cur = cur + 1
+        DrawSeqStrip working$, cur
+      ElseIf k$ = Chr$(127) Or k$ = Chr$(8) Then
+        If cur > 0 Then
+          working$ = Left$(working$, cur-1) + Mid$(working$, cur+1)
+          cur = cur - 1
+          DrawSeqStrip working$, cur
+        End If
+      ElseIf k$ = "c" Or k$ = "C" Then
+        working$ = "" : cur = 0
+        DrawSeqStrip working$, cur
+      ElseIf k$ = "s" Or k$ = "S" Then
+        WriteSeqFile SEQ_DIR + "\" + name$ + SEQ_EXT, name$, working$
+        ShowMessage "Saved.", 800
+        DrawDialpadFrame "Edit: " + name$
+        DrawDialpadButtons 1
+        DrawSeqStrip working$, cur
+      ElseIf k$ = Chr$(13) Then
+        PlaySequence working$
+      End If
+    End If
+  Loop
+End Sub
+
+Sub ConfirmDelete name$
+  Local k$
+  CLS
+  GUI DELETE ALL
+  GUI CAPTION C_CAPTION, "Delete " + name$ + "?", mm.hres/2, 40, "CMN", FG_Color, BG_Color
+  Text mm.hres/2, mm.vres/2, "Y = delete    N = cancel", "CM", 2, 1, FG_Color, BG_Color
+  Do
+    k$ = WaitKey$()
+    If k$ = "y" Or k$ = "Y" Then
+      Kill SEQ_DIR + "\" + name$ + SEQ_EXT
+      ShowMessage "Deleted.", 800
+      Exit Sub
+    ElseIf k$ = "n" Or k$ = "N" Or k$ = "q" Or k$ = "Q" Then
+      Exit Sub
+    End If
+  Loop
+End Sub
+
+' ====================================================================
+' Play a sequence using Q.23 minimum timings
+' ====================================================================
+
+Sub PlaySequence seq$
+  Local i, ch$, idx
+  ' Briefly indicate playback
+  Text mm.hres/2, mm.vres - 30, "Playing...", "CM", 2, 1, RGB(yellow), BG_Color
+  For i = 1 To Len(seq$)
+    ch$ = Mid$(seq$, i, 1)
+    If ch$ = "P" Then
+      Pause PAUSE_MS
+    Else
+      idx = TokenIndex(ch$)
+      If idx >= 0 Then
+        Play Tone tones(idx,0), tones(idx,1), TONE_MS
+        Pause TONE_MS
+        Pause GAP_MS
+      End If
+    End If
+  Next i
+  Box 0, mm.vres - 40, mm.hres, 20, 1, BG_Color, BG_Color
+End Sub
+
+' ====================================================================
+' Settings (stub)
+' ====================================================================
+
+Sub Settings
+  Local k$
+  CLS
+  GUI DELETE ALL
+  GUI CAPTION C_CAPTION, "Settings", mm.hres/2, 8, "CMN", FG_Color, BG_Color
+  Text mm.hres/2, 60,  "Tone duration: " + Str$(TONE_MS) + " ms",  "CM", 2, 1, FG_Color, BG_Color
+  Text mm.hres/2, 90,  "Inter-tone gap: " + Str$(GAP_MS) + " ms",  "CM", 2, 1, FG_Color, BG_Color
+  Text mm.hres/2, 120, "Pause length: "  + Str$(PAUSE_MS)+ " ms",  "CM", 2, 1, FG_Color, BG_Color
+  Text mm.hres/2, 170, "(editing coming soon)",                    "CM", 1, 1, DIM_Color, BG_Color
+  Text mm.hres/2, mm.vres - 16, "Press any key to return",         "CM", 1, 1, DIM_Color, BG_Color
+  k$ = WaitKey$()
+End Sub
+
+' ====================================================================
+' Small utilities
+' ====================================================================
+
+Function WaitKey$()
+  Local k$
+  Do
+    k$ = Inkey$
+    If k$ <> "" Then Exit Do
+    Pause 10
+  Loop
+  WaitKey$ = k$
+End Function
+
+Sub ShowMessage msg$, dur
+  Local y
+  y = mm.vres - 24
+  Box 0, y, mm.hres, 16, 1, BG_Color, BG_Color
+  Text mm.hres/2, y + 8, msg$, "CM", 1, 1, RGB(yellow), BG_Color
+  Pause dur
+  Box 0, y, mm.hres, 16, 1, BG_Color, BG_Color
+End Sub
+
+' Simple line-input prompt (full-screen overlay)
+Function PromptText$(prompt$, maxlen)
+  Local buf$, k$
+  buf$ = ""
+  CLS
+  GUI DELETE ALL
+  GUI CAPTION C_CAPTION, prompt$, mm.hres/2, 30, "CMN", FG_Color, BG_Color
+  Do
+    Box 20, 80, mm.hres - 40, 24, 1, FG_Color, BG_Color
+    Text 28, 92, buf$ + "_", "LM", 2, 1, FG_Color, BG_Color
+    Text mm.hres/2, mm.vres - 16, "Enter=ok  Esc/Q=cancel  Bksp=del", "CM", 1, 1, DIM_Color, BG_Color
+    k$ = WaitKey$()
+    Select Case k$
+      Case Chr$(13)
+        PromptText$ = buf$
+        Exit Function
+      Case Chr$(27), "q", "Q"
+        PromptText$ = ""
+        Exit Function
+      Case Chr$(127), Chr$(8)
+        If Len(buf$) > 0 Then buf$ = Left$(buf$, Len(buf$)-1)
+      Case Else
+        If Len(k$) = 1 And Len(buf$) < maxlen Then
+          If Asc(k$) >= 32 And Asc(k$) < 127 Then buf$ = buf$ + k$
+        End If
+    End Select
+  Loop
+End Function
